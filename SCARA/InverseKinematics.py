@@ -73,8 +73,6 @@ def angles_to_steps(theta1, theta2, theta3=0,
 
     return s1, d1, s2, d2, s3, d3
 
-
-
 # Example usage:
 if __name__ == "__main__":
     x, y = 0.11, 0.06
@@ -86,8 +84,8 @@ if __name__ == "__main__":
         # --- using solution A ---
         theta1, theta2 = sol1
         theta3 = end_effector(theta1, theta2, 0)
-        result = angles_to_steps(theta1, theta2, theta3)
-        print("Steps (s1,d1,s2,d2,s3,d3):", result)
+        result = angles_to_steps(theta1, theta2)
+        print("Steps (s1,d1,s2,d2):", result)
 
     except ValueError as e:
         print("IK error:", e)
