@@ -65,26 +65,14 @@ def send_and_listen(pulses1, dir1, pulses2, dir2):
         print(f"Error in send_and_listen: {e}")
         return []
 
-# -------------------------
-# SAFETY CHECKS
-# -------------------------
-def validate_movement(steps1, steps2):
-    """Check if movement is within safe limits"""
-    MAX_STEPS = 10000
-    
-    if abs(steps1) > MAX_STEPS or abs(steps2) > MAX_STEPS:
-        print(f"⚠️ Large movement detected! Steps: {steps1}, {steps2}")
-        return False
-    return True
 
 # -------------------------
 # MAIN MOVEMENT FUNCTION
 # -------------------------
-def move_to_point(x, y, phi_desired=0.0, auto_home=True):
+def move_to_point(x, y, current_angles, phi_desired=0.0, auto_home=True):
     """
     Move to specified point with constraints and optional homing
     """
-    global current_angles
     
     try:
         print(f"\n🎯 MOVING TO: x={x}, y={y}, phi={phi_desired}")
@@ -105,12 +93,6 @@ def move_to_point(x, y, phi_desired=0.0, auto_home=True):
         # Calculate relative steps from current position to target (pass current_angles)
         rel_steps1, dir1, rel_steps2, dir2, rel_steps3, dir3 = utl.calculate_relative_steps(target_angles, current_angles)
 
-        # Safety validation
-        if not validate_movement(rel_steps1, rel_steps2):
-            confirm = input("Large movement detected. Continue anyway? (y/N): ")
-            if confirm.lower() != "y":
-                print("Movement cancelled.")
-                return False
 
         # Send movement
         print("\nSending movement command...")
@@ -127,16 +109,17 @@ def move_to_point(x, y, phi_desired=0.0, auto_home=True):
         
         # Auto-home if requested
         if auto_home:
-            time.sleep(1)
+            time.sleep(5)
             # For homing, we need to pass current_angles and get the steps needed
             home_steps1, home_dir1, home_steps2, home_dir2, _, _ = utl.calculate_relative_steps(HOME_ANGLES, current_angles)
             responses = send_and_listen(home_steps1, home_dir1, home_steps2, home_dir2)
             if responses:
                 current_angles = HOME_ANGLES
                 print("✅ Home position reached")
-        
-        return True
-        
+        print("----------c1---------------")
+        print(current_angles)
+        return True, current_angles
+    
     except Exception as e:
         print(f"❌ Unexpected error in move_to_point: {e}")
         return False
@@ -175,27 +158,31 @@ if __name__ == "__main__":
         
         # Test sequence
         test_points = [
-            (0.0, -0.15, 0.0),   # Point 1  ###wrong?
-            (0.10, 0.0, 0.0),   # Point 2  
-            (0.20, 0.0, 0.0),   # Point 3
-            (0.10, -0.25, 0.0),   # Point 4
-            (0.0, 0.15, 0.0),   # Point 5  
-            (0.10, 0.3, 0.0),   # Point 6
+            #(0.05, 0.0, 0.0),   # Point 2
+            (0.1, 0.0, 0.0),   # Point 1  ###wrong?
+            (0.15, 0.0, 0.0),
+            (0.2, 0.0, 0.0),
+            (0.25, 0.0, 0.0),
+            (0.2, 0.1, 0.0),
+            (0.15, 0.15, 0.0),
+            (0.1, 0.1, 0.0),
+            (0.05, 0.05, 0.0),
+            (0.0, 0.0, 0.0)
         ]
-        
         for i, (x, y, phi) in enumerate(test_points, 1):
             print(f"\n{'='*50}")
             print(f"MOVEMENT {i}/{len(test_points)}")
-            
-            success = move_to_point(x, y, phi, auto_home=True)
-            
+            print("----------c0/3---------------")
+            print(current_angles)
+            success, current_angles = move_to_point(x, y, current_angles, phi, auto_home=False)
+
             if not success:
                 print(f"⚠️ Movement {i} failed - continuing to next point...")
             
-            if i < len(test_points):
+            """             if i < len(test_points):
                 cont = input(f"\nContinue to point {i+1}? (y/N): ")
                 if cont.lower() != 'y':
-                    break
+                    break """
         
         print("\n🎉 All movements completed!")
         

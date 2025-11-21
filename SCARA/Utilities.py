@@ -9,8 +9,8 @@ import InverseKinematics as IK
 # Motor angle constraints (degrees)
 MOTOR1_ABS_MIN = -80   # degrees
 MOTOR1_ABS_MAX = 80    # degrees  
-MOTOR2_ABS_MIN = -150  # degrees
-MOTOR2_ABS_MAX = 150   # degrees
+MOTOR2_ABS_MIN = -160  # degrees
+MOTOR2_ABS_MAX = 160   # degrees
 
 COUPLING_RATIO = 0.5  # Motor2 moves half the angle of Motor1 due to coupling
 
@@ -306,7 +306,7 @@ def calculate_relative_steps(target_angles, current_angles):
     
     # Determine directions based on sign of relative steps
     dir1 = 1 if rel_steps1 >= 0 else 0
-    dir2 = 1 if rel_steps2 >= 0 else 0
+    dir2 = 0 if rel_steps2 >= 0 else 1
     dir3 = 1 if rel_steps3 >= 0 else 0
     
     # Use absolute values for step counts

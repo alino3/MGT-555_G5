@@ -49,17 +49,16 @@ def angles_to_steps(theta1, theta2, theta3=0,
 
     steps_per_joint_rev = steps_per_rev * microsteps * gear_ratio
 
-    # ---------------------- CHANGE 1 ----------------------
     # Motor2 joint angle must be compensated:
     #   - 2:1 reduction  => motor must move 2x theta2
     #   - coupling: motor2 must also cancel -theta1/2 automatic rotation
-    theta2_motor = 2 * theta2 + 0.5 * theta1
+    theta2_motor = 2 * theta2 + 1.0 * theta1
     # ------------------------------------------------------
 
     # Standard motor conversion for motor1 and motor3
     s1 = int(round((theta1 / (2*math.pi)) * steps_per_joint_rev)) * step_sign[0] + home_offsets[0]
     
-    # ---------------------- CHANGE 2 ----------------------
+
     # Use theta2_motor instead of theta2
     s2 = int(round((theta2_motor / (2*math.pi)) * steps_per_joint_rev)) * step_sign[1] + home_offsets[1]
     # ------------------------------------------------------
@@ -73,19 +72,3 @@ def angles_to_steps(theta1, theta2, theta3=0,
 
     return s1, d1, s2, d2, s3, d3
 
-# Example usage:
-if __name__ == "__main__":
-    x, y = 0.11, 0.06
-    try:
-        sol1, sol2 = ik_scara(x, y)
-        print("Solution A (theta1, theta2) in deg:", tuple(math.degrees(a) for a in sol1))
-        print("Solution B (theta1, theta2) in deg:", tuple(math.degrees(a) for a in sol2))
-        
-        # --- using solution A ---
-        theta1, theta2 = sol1
-        theta3 = end_effector(theta1, theta2, 0)
-        result = angles_to_steps(theta1, theta2)
-        print("Steps (s1,d1,s2,d2):", result)
-
-    except ValueError as e:
-        print("IK error:", e)
