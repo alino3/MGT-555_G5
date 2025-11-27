@@ -71,4 +71,3 @@ def angles_to_steps(theta1, theta2, theta3=0,
     d3 = int(math.copysign(1, s3))
 
     return s1, d1, s2, d2, s3, d3
-

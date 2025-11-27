@@ -35,12 +35,14 @@ except serial.SerialException as e:
 def send_and_listen(pulses1, dir1, pulses2, dir2):
     """Send motor commands for 2 motors and listen for Arduino responses"""
     try:
+        pulse3 = 0  # No movement for motor 3
         # Convert direction values to 0 or 1
         dir1 = 1 if dir1 else 0
         dir2 = 1 if dir2 else 0
+        dir3 = 0
         
         # Pack data: 2 pulses (32-bit int) + 2 directions (byte)
-        data = struct.pack('>iiBB', pulses1, pulses2, dir1, dir2)
+        data = struct.pack('>iiiBBB', pulses1, pulses2, pulse3, dir1, dir2, dir3)
         ser.write(b'\x01' + data)
         
         print(f"Sent: M1={pulses1}(d:{dir1}), M2={pulses2}(d:{dir2})")
@@ -167,7 +169,7 @@ if __name__ == "__main__":
             (0.15, 0.15, 0.0),
             (0.1, 0.1, 0.0),
             (0.05, 0.05, 0.0),
-            (0.0, 0.0, 0.0)
+            (0.36, 0.0, 0.0)
         ]
         for i, (x, y, phi) in enumerate(test_points, 1):
             print(f"\n{'='*50}")
