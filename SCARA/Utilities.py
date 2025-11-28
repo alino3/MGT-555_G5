@@ -45,7 +45,7 @@ def validate_angles_with_coupling(theta1, theta2, current_angles):
     Check if angles are within constraints considering mechanical coupling
     The coupling means we need to compensate motor2 commands
     """
-    current_theta1, current_theta2, _ = current_angles
+    current_theta1, current_theta2, _, z = current_angles
     
     theta1_deg = radians_to_degrees(theta1)
     theta2_deg = radians_to_degrees(theta2)
@@ -175,15 +175,15 @@ def radians_to_degrees(rad):
     """Convert radians to degrees"""
     return rad * 180.0 / math.pi
 
-
 def choose_best_solution(solA, solB, current_angles=None):
     """
     Choose the best IK solution based on constraints and coupling
     Returns (theta1, theta2) or None if no valid solution
     """
     try:
-        theta1A, theta2A = solA
-        theta1B, theta2B = solB
+        # Extract just theta1 and theta2 from the solutions (ignore theta3 and thetaZ for selection)
+        theta1A, theta2A = solA  # Unpack 4 values
+        theta1B, theta2B = solB  # Unpack 4 values
         
         print(f"\n🎯 ANALYZING IK SOLUTIONS:")
         print(f"Solution A: θ1={radians_to_degrees(theta1A):.1f}°, θ2={radians_to_degrees(theta2A):.1f}°")
@@ -208,43 +208,44 @@ def choose_best_solution(solA, solB, current_angles=None):
         # If only one valid, choose it
         if validA and not validB:
             print("✅ Selected Solution A (only valid option)")
-            return solA
+            return solA  # Return the full solution (4 values)
         if validB and not validA:
             print("✅ Selected Solution B (only valid option)")
-            return solB
+            return solB  # Return the full solution (4 values)
         
         # If both valid, choose based on proximity to current position
         if current_angles:
-            current_theta1, current_theta2, _ = current_angles
+            current_theta1, current_theta2, _, _ = current_angles  # Unpack 4 values
             
-            # Calculate angular distance for each solution
+            # Calculate angular distance for each solution (only for theta1 and theta2)
             distA = abs(theta1A - current_theta1) + abs(theta2A - current_theta2)
             distB = abs(theta1B - current_theta1) + abs(theta2B - current_theta2)
             
             if distA <= distB:
                 print("✅ Selected Solution A (closer to current position)")
-                return solA
+                return solA  # Return the full solution (4 values)
             else:
                 print("✅ Selected Solution B (closer to current position)")
-                return solB
+                return solB  # Return the full solution (4 values)
         else:
             # No current position, default to solution A
             print("✅ Selected Solution A (default)")
-            return solA
+            return solA  # Return the full solution (4 values)
             
     except Exception as e:
         print(f"❌ Error in choose_best_solution: {e}")
         return None
-
-def safe_ik_calculation(x, y, current_angles, phi_desired=0.0):
+    
+def safe_ik_calculation(x, y, current_angles, z, phi_desired=0.0):
     """
     Safely compute IK with comprehensive error handling
-    Returns (theta1, theta2, theta3) or None if failed
+    Returns (theta1, theta2, theta3, thetaZ) or None if failed
     """
     try:
-        print(f"🔍 Computing IK for x={x}, y={y}, phi={phi_desired}")
+        print(f"🔍 Computing IK for x={x}, y={y}, z={z}, phi={phi_desired}")
         
         # Compute IK solutions
+       
         solA, solB = IK.ik_scara(x, y)
         
         # Debug: Check if IK returned valid solutions
@@ -267,11 +268,13 @@ def safe_ik_calculation(x, y, current_angles, phi_desired=0.0):
             print("   - Relaxing coupling constraints if possible")
             return None
             
-        theta1, theta2 = best_solution
-        theta3 = IK.end_effector(theta1, theta2, phi_desired)
+        theta1, theta2 = best_solution  # This now returns 2 values, but we need to add theta3 and thetaZ
+        theta3 = IK.end_effector(theta1, theta2, phi_desired) 
+        Z = z
         
         print("✅ IK computation successful")
-        return (theta1, theta2, theta3)
+        print(f"   Final angles: θ1={radians_to_degrees(theta1):.1f}°, θ2={radians_to_degrees(theta2):.1f}°, θ3={radians_to_degrees(theta3):.1f}°, Z={Z:.1f}mm")
+        return (theta1, theta2, theta3, Z)
         
     except ValueError as e:
         print(f"❌ IK mathematical error: {e}")
@@ -287,8 +290,8 @@ def calculate_relative_steps(target_angles, current_angles):
     """
      
     
-    current_theta1, current_theta2, current_theta3 = current_angles
-    target_theta1, target_theta2, target_theta3 = target_angles
+    current_theta1, current_theta2, current_theta3, z = current_angles
+    target_theta1, target_theta2, target_theta3, z_t = target_angles
     
     # Convert both current and target positions to steps
     current_steps1, current_dir1, current_steps2, current_dir2, current_steps3, current_dir3 = IK.angles_to_steps(
@@ -302,24 +305,25 @@ def calculate_relative_steps(target_angles, current_angles):
     # Calculate relative steps needed
     rel_steps1 = target_steps1 - current_steps1
     rel_steps2 = target_steps2 - current_steps2
-    rel_steps3 = target_steps3 - current_steps3
-    
+    #rel_steps3 = target_steps3 - current_steps3
+    steps_Z = int(round(((z_t - z)/ 2) * IK.STEPS_PER_REV_Z))  # Convert z in mm to steps
+    print(f"Z movement: from {z} mm to {z_t} mm → steps: {steps_Z}")
     # Determine directions based on sign of relative steps
     dir1 = 1 if rel_steps1 >= 0 else 0
     dir2 = 0 if rel_steps2 >= 0 else 1
-    dir3 = 1 if rel_steps3 >= 0 else 0
+    dir3 = 1 if steps_Z >= 0 else 0
     
     # Use absolute values for step counts
     rel_steps1 = abs(rel_steps1)
     rel_steps2 = abs(rel_steps2)
-    rel_steps3 = abs(rel_steps3)
+    steps_Z = abs(steps_Z)
     
     print(f"\n--- RELATIVE MOVEMENT CALCULATION ---")
     print(f"Current: θ1={radians_to_degrees(current_theta1):.1f}°, θ2={radians_to_degrees(current_theta2):.1f}°")
     print(f"Target:  θ1={radians_to_degrees(target_theta1):.1f}°, θ2={radians_to_degrees(target_theta2):.1f}°")
     print(f"Relative steps: M1={rel_steps1}(d:{dir1}), M2={rel_steps2}(d:{dir2})")
     
-    return rel_steps1, dir1, rel_steps2, dir2, rel_steps3, dir3
+    return rel_steps1, dir1, rel_steps2, dir2, steps_Z, dir3
 
 def go_home():
     """Move all motors to home position from current position"""

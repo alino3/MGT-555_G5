@@ -73,7 +73,7 @@ void moveMotor2() {
     delayMicroseconds(800);  // Adjust speed
     
     // Progress indicator for large movements
-    if (receivedSteps > 100 && (i + 1) % 50 == 0) {
+    if (receivedSteps > 1000 && (i + 1) % 50 == 0) {
       Serial.print("Motor 2 progress: "); Serial.print(i + 1); 
       Serial.print("/"); Serial.println(receivedSteps);
     }

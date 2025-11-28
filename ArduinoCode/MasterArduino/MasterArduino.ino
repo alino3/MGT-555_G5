@@ -1,73 +1,60 @@
 #include <Wire.h>
 
-// Motor 1 pins (THIS ARDUINO CONTROLS MOTOR 1)
+// Motor 1 pins
 #define STEP_PIN_1 2
 #define DIR_PIN_1 3
 #define ENABLE_PIN_1 4
 
-// I2C addresses for other Arduinos
-#define ARDUINO_2_ADDRESS 8
-#define ARDUINO_3_ADDRESS 9
+// I2C addresses
+#define ARDUINO_2_ADDRESS 8  // Motor 2
+#define ARDUINO_3_ADDRESS 9  // Z-Stepper + Servos
 
 void setup() {
-  // Initialize serial
   Serial.begin(115200);
-  
-  // Initialize I2C as master
   Wire.begin();
   
   // Initialize motor pins
   pinMode(STEP_PIN_1, OUTPUT);
   pinMode(DIR_PIN_1, OUTPUT);
   pinMode(ENABLE_PIN_1, OUTPUT);
-  
-  // Enable motor (LOW = enabled)
   digitalWrite(ENABLE_PIN_1, LOW);
-  digitalWrite(STEP_PIN_1, LOW);
-  digitalWrite(DIR_PIN_1, LOW);
   
-  Serial.println("Arduino 1 Ready - 3 Motor Mode");
-  Serial.println("Waiting for commands...");
+  Serial.println("=== MASTER ARDUINO SIMPLIFIED ===");
+  Serial.println("Ready for commands...");
 }
 
 void loop() {
-  // Check for serial data: 1 byte command + (3 pulses * 4 bytes) + (3 directions * 1 byte) = 16 bytes
-  if (Serial.available() >= 16) {
+  if (Serial.available() >= 18) {
     byte command = Serial.read();
     
     if (command == 0x01) {
-      // Read data for 3 motors: 3 pulses (12 bytes) + 3 directions (3 bytes)
+      // Read all data
       long steps1 = readLong();
       long steps2 = readLong();
-      long steps3 = readLong();
+      long stepsZ = readLong();
       byte dir1 = Serial.read();
       byte dir2 = Serial.read();
-      byte dir3 = Serial.read();
+      byte dirZ = Serial.read();
+      byte servo_phi = Serial.read();
+      byte servo_gripper = Serial.read();
       
-      Serial.println("=== RECEIVED 3-MOTOR COMMAND ===");
-      Serial.print("Motor 1: "); Serial.print(steps1); Serial.print(" steps, dir: "); Serial.println(dir1);
-      Serial.print("Motor 2: "); Serial.print(steps2); Serial.print(" steps, dir: "); Serial.println(dir2);
-      Serial.print("Motor 3: "); Serial.print(steps3); Serial.print(" steps, dir: "); Serial.println(dir3);
+      Serial.println("\n=== PROCESSING COMMAND ===");
+      Serial.print("Z-axis: "); Serial.print(stepsZ); Serial.print(" steps, dir: "); Serial.println(dirZ);
       
       // Move Motor 1 locally
       if (steps1 != 0) {
-        Serial.println("Moving Motor 1...");
-        moveMotor(STEP_PIN_1, DIR_PIN_1, steps1, dir1);
+        moveStepperLocal(steps1, dir1);
       }
       
-      // Send to Arduino 2 via I2C (Motor 2)
+      // Send to Arduino 2 (Motor 2)
       if (steps2 != 0) {
-        Serial.println("Sending to Arduino 2 (Motor 2) via I2C...");
-        sendToSlave(ARDUINO_2_ADDRESS, steps2, dir2);
+        sendToArduino2(steps2, dir2);
       }
       
-      // Send to Arduino 3 via I2C (Motor 3)
-      if (steps3 != 0) {
-        Serial.println("Sending to Arduino 3 (Motor 3) via I2C...");
-        sendToSlave(ARDUINO_3_ADDRESS, steps3, dir3);
-      }
+      // Send to Arduino 3 (Z-Stepper + Servos)
+      sendToArduino3(stepsZ, dirZ, servo_phi, servo_gripper);
       
-      Serial.println("=== ALL COMMANDS SENT ===");
+      Serial.println("=== COMMAND COMPLETED ===");
     }
   }
 }
@@ -80,40 +67,50 @@ long readLong() {
   return value;
 }
 
-void sendToSlave(int address, long steps, byte direction) {
-  Wire.beginTransmission(address);
+void sendToArduino3(long stepsZ, byte dirZ, byte servo_phi, byte servo_gripper) {
+  Serial.println("Sending to Arduino 3...");
   
-  // Send steps (4 bytes)
-  Wire.write((byte)((steps >> 24) & 0xFF));
-  Wire.write((byte)((steps >> 16) & 0xFF));
-  Wire.write((byte)((steps >> 8) & 0xFF));
-  Wire.write((byte)(steps & 0xFF));
+  Wire.beginTransmission(ARDUINO_3_ADDRESS);
   
-  // Send direction (1 byte)
-  Wire.write(direction);
+  // Send stepper data (5 bytes)
+  for (int i = 3; i >= 0; i--) {
+    byte b = (stepsZ >> (8 * i)) & 0xFF;
+    Wire.write(b);
+  }
+  Wire.write(dirZ);
+  
+  // Send servo data (3 bytes)
+  Wire.write(0xAA);
+  Wire.write(servo_phi);
+  Wire.write(servo_gripper);
   
   byte error = Wire.endTransmission();
   
   if (error == 0) {
-    Serial.print("I2C sent to address "); Serial.print(address);
-    Serial.print(": "); Serial.print(steps); Serial.print(" steps, dir: "); Serial.println(direction);
+    Serial.println("Command sent to Arduino 3 successfully");
   } else {
-    Serial.print("I2C ERROR sending to address "); Serial.println(address);
+    Serial.print("I2C error: ");
+    Serial.println(error);
   }
 }
 
-void moveMotor(int stepPin, int dirPin, long steps, byte direction) {
-  digitalWrite(dirPin, direction);
+void sendToArduino2(long steps, byte direction) {
+  Wire.beginTransmission(ARDUINO_2_ADDRESS);
+  for (int i = 3; i >= 0; i--) {
+    Wire.write((steps >> (8 * i)) & 0xFF);
+  }
+  Wire.write(direction);
+  Wire.endTransmission();
+}
+
+void moveStepperLocal(long steps, byte direction) {
+  digitalWrite(DIR_PIN_1, direction);
   delay(10);
   
-  Serial.print("Generating "); Serial.print(steps); Serial.println(" steps...");
-  
   for (long i = 0; i < steps; i++) {
-    digitalWrite(stepPin, HIGH);
+    digitalWrite(STEP_PIN_1, HIGH);
     delayMicroseconds(800);
-    digitalWrite(stepPin, LOW);
+    digitalWrite(STEP_PIN_1, LOW);
     delayMicroseconds(800);
   }
-  
-  Serial.println("Motor movement completed");
 }

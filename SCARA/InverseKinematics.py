@@ -10,6 +10,8 @@ STEP_SIGN = [1, 1, 1]
 HOME_OFFSETS = [0, 0, 0]
 STEPS_PER_JOINT_REV = STEPS_PER_REV * MICROSTEPS * GEAR_RATIO
 
+STEPS_PER_REV_Z = 400
+
 
 def ik_scara(x, y, L1=L1, L2=L2):
     r2 = x*x + y*y

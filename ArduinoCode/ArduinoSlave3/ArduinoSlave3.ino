@@ -1,106 +1,179 @@
 #include <Wire.h>
 #include <Servo.h>
 
-#define STEP_PIN_3 2
-#define DIR_PIN_3 3
-#define ENABLE_PIN_3 4
-#define SERVO_1_PIN 5
-#define SERVO_2_PIN 6
+#define STEP_PIN_2 2
+#define DIR_PIN_2 3
+#define ENABLE_PIN_2 4
 
-Servo servo1, servo2;
-bool isMovingStepper = false;
-unsigned long stepperStartTime = 0;
-long remainingSteps = 0;
-byte stepperDirection = 0;
+// Servo pins
+#define SERVO_PHI_PIN 5
+#define SERVO_GRIPPER_PIN 6
+
+// Create servo objects
+Servo servoPhi;
+Servo servoGripper;
+
+// Servo positions
+int servoPhi_pos = 90;
+int servoGripper_pos = 90;
+
+// Motor data
+long receivedSteps = 0;
+byte receivedDirection = 0;
+bool newData = false;
+
+// Servo data
+byte receivedServoPhi = 0xFF;
+byte receivedServoGripper = 0xFF;
+bool newServoData = false;
 
 void setup() {
   Serial.begin(115200);
   
-  // Stepper setup
-  pinMode(STEP_PIN_3, OUTPUT);
-  pinMode(DIR_PIN_3, OUTPUT);
-  pinMode(ENABLE_PIN_3, OUTPUT);
-  digitalWrite(ENABLE_PIN_3, LOW);
+  // Initialize motor pins
+  pinMode(STEP_PIN_2, OUTPUT);
+  pinMode(DIR_PIN_2, OUTPUT);
+  pinMode(ENABLE_PIN_2, OUTPUT);
+  digitalWrite(ENABLE_PIN_2, LOW);
   
-  // Servo setup
-  servo1.attach(SERVO_1_PIN);
-  servo2.attach(SERVO_2_PIN);
-  servo1.write(90);
-  servo2.write(90);
+  // Attach servos to pins
+  servoPhi.attach(SERVO_PHI_PIN);
+  servoGripper.attach(SERVO_GRIPPER_PIN);
   
-  // I2C setup
+  // Move servos to default position
+  servoPhi.write(servoPhi_pos);
+  servoGripper.write(servoGripper_pos);
+  
+  // Initialize I2C as slave with address 9
   Wire.begin(9);
   Wire.onReceive(receiveEvent);
   
-  Serial.println("Arduino 3 Ready - Improved Version");
-}
-
-void receiveEvent(int bytes) {
-  Serial.print("I2C: "); Serial.print(bytes); Serial.println(" bytes");
-  
-  if (bytes >= 1) {
-    byte first = Wire.read();
-    
-    if (first == 0xAA && bytes == 3) {
-      // Servo command - process immediately
-      byte s1 = Wire.read();
-      byte s2 = Wire.read();
-      Serial.print("Servos: "); Serial.print(s1); Serial.print(","); Serial.println(s2);
-      setServos(s1, s2);
-      
-    } else if (bytes == 5) {
-      // Stepper command - store for later processing
-      long steps = first;
-      for (int i = 0; i < 3; i++) {
-        steps = (steps << 8) | Wire.read();
-      }
-      byte dir = Wire.read();
-      
-      // If already moving, stop current movement
-      if (isMovingStepper) {
-        Serial.println("Interrupting current movement");
-        isMovingStepper = false;
-      }
-      
-      // Start new movement
-      startStepperMovement(steps, dir);
-    }
-  }
-}
-
-void startStepperMovement(long steps, byte direction) {
-  remainingSteps = steps;
-  stepperDirection = direction;
-  isMovingStepper = true;
-  stepperStartTime = millis();
-  
-  digitalWrite(DIR_PIN_3, direction);
-  delay(10);
-  
-  Serial.print("Starting stepper: "); Serial.print(steps); Serial.println(" steps");
-}
-
-void setServos(byte angle1, byte angle2) {
-  // Servo commands can be processed even while stepper is moving
-  servo1.write(angle1);
-  servo2.write(angle2);
-  Serial.print("Servos set to: "); Serial.print(angle1); Serial.print(","); Serial.println(angle2);
+  Serial.println("Arduino 3 Ready - Fixed I2C Communication");
+  Serial.println("Waiting for commands...");
 }
 
 void loop() {
-  // Handle stepper movement in loop to keep I2C responsive
-  if (isMovingStepper && remainingSteps > 0) {
-    digitalWrite(STEP_PIN_3, HIGH);
-    delayMicroseconds(800);
-    digitalWrite(STEP_PIN_3, LOW);
-    delayMicroseconds(800);
-    remainingSteps--;
+  if (newData) {
+    Serial.println("=== EXECUTING STEPPER COMMAND ===");
+    Serial.print("Motor Z: "); Serial.print(receivedSteps); 
+    Serial.print(" microsteps, dir: "); Serial.println(receivedDirection);
     
-    if (remainingSteps % 100 == 0) {
-      Serial.print("Stepper progress: "); Serial.println(remainingSteps);
-    }
-  } else if (isMovingStepper && remainingSteps == 0) {
-    isMovingStepper = false;
-    Serial.println("Stepper movement completed");
+    moveMotorZ();
+    newData = false;
+    
+    Serial.println("=== STEPPER COMMAND COMPLETED ===");
   }
+  
+  if (newServoData) {
+    Serial.println("=== EXECUTING SERVO COMMAND ===");
+    
+    if (receivedServoPhi != 0xFF) {
+      Serial.print("Setting Servo Phi to: "); Serial.println(receivedServoPhi);
+      setServoPhi(receivedServoPhi);
+    }
+    
+    if (receivedServoGripper != 0xFF) {
+      Serial.print("Setting Servo Gripper to: "); Serial.println(receivedServoGripper);
+      setServoGripper(receivedServoGripper);
+    }
+    
+    newServoData = false;
+    Serial.println("=== SERVO COMMAND COMPLETED ===");
+  }
+}
+
+void receiveEvent(int bytes) {
+  Serial.print("I2C received "); Serial.print(bytes); Serial.println(" bytes");
+  
+  if (bytes >= 1) {
+    byte firstByte = Wire.read();
+    
+    if (firstByte == 0xBB && bytes >= 6) {
+      // Combined command: 0xBB + 4 bytes steps + 1 byte direction + 3 bytes servo data
+      processStepperCommand();
+      
+      // Check if there are more bytes for servos
+      if (bytes == 9) {
+        processServoCommand();
+      }
+    }
+    else if (firstByte == 0xAA && bytes == 3) {
+      // Servo-only command: 0xAA + phi + gripper
+      processServoCommand();
+    }
+    else {
+      // Unknown command - read remaining bytes to clear buffer
+      while (Wire.available()) {
+        Wire.read();
+      }
+      Serial.println("Unknown command format");
+    }
+  }
+}
+
+void processStepperCommand() {
+  // Read steps (4 bytes)
+  receivedSteps = 0;
+  for (int i = 0; i < 4; i++) {
+    if (Wire.available()) {
+      receivedSteps = (receivedSteps << 8) | Wire.read();
+    }
+  }
+  
+  // Read direction (1 byte)
+  if (Wire.available()) {
+    receivedDirection = Wire.read();
+  }
+  
+  newData = true;
+  Serial.print("Stepper command: "); Serial.print(receivedSteps); 
+  Serial.print(" steps, dir: "); Serial.println(receivedDirection);
+}
+
+void processServoCommand() {
+  // Read servo data (2 bytes after marker)
+  if (Wire.available() >= 2) {
+    receivedServoPhi = Wire.read();
+    receivedServoGripper = Wire.read();
+    newServoData = true;
+    
+    Serial.print("Servo command: φ="); Serial.print(receivedServoPhi);
+    Serial.print("°, gripper="); Serial.print(receivedServoGripper); Serial.println("°");
+  }
+}
+
+void setServoPhi(byte angle) {
+  if (angle >= 0 && angle <= 180) {
+    servoPhi_pos = angle;
+    servoPhi.write(servoPhi_pos);
+    Serial.print("Servo φ set to: "); Serial.print(angle); Serial.println("°");
+  } else {
+    Serial.println("Servo φ angle out of range (0-180)");
+  }
+}
+
+void setServoGripper(byte angle) {
+  if (angle >= 0 && angle <= 180) {
+    servoGripper_pos = angle;
+    servoGripper.write(servoGripper_pos);
+    Serial.print("Servo gripper set to: "); Serial.print(angle); Serial.println("°");
+  } else {
+    Serial.println("Servo gripper angle out of range (0-180)");
+  }
+}
+
+void moveMotorZ() {
+  digitalWrite(DIR_PIN_2, receivedDirection);
+  delay(10);
+  
+  Serial.print("Motor Z generating "); Serial.print(receivedSteps); Serial.println(" microsteps...");
+  
+  for (long i = 0; i < receivedSteps; i++) {
+    digitalWrite(STEP_PIN_2, HIGH);
+    delayMicroseconds(800);
+    digitalWrite(STEP_PIN_2, LOW);
+    delayMicroseconds(800);
+  }
+  
+  Serial.println("Motor Z movement completed");
 }
