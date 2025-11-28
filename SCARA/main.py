@@ -30,7 +30,7 @@ except serial.SerialException as e:
     exit()
 
 # -------------------------
-# SEND FUNCTION (2 MOTORS)
+# SEND FUNCTION 
 # -------------------------
 def send_and_listen(pulses1, dir1, pulses2, dir2, pulses3, dir3, servo1, servo2):
     """Send motor commands for 2 motors and listen for Arduino responses"""
@@ -95,7 +95,7 @@ def move_to_point(x, y, current_angles, z, phi=0, gripper_open=False, auto_home=
         rel_steps1, dir1, rel_steps2, dir2, rel_steps3, dir3 = utl.calculate_relative_steps(target_angles, current_angles)
 
 
-        servo1 = target_angles[2]  # Assuming servo1 corresponds to theta3
+        servo1 = int(target_angles[2])  # Assuming servo1 corresponds to theta3
 
         if gripper_open:
             servo2 = 0  # Open position
@@ -105,7 +105,7 @@ def move_to_point(x, y, current_angles, z, phi=0, gripper_open=False, auto_home=
         # Send movement
         print("\nSending movement command...")
         print(f"Relative Steps: M1={rel_steps1}(d:{dir1}), M2={rel_steps2}(d:{dir2}), M3={rel_steps3}(d:{dir3})")
-        responses = send_and_listen(rel_steps1, dir1, rel_steps2, dir2, rel_steps3, dir3, servo1, servo2=90)
+        responses = send_and_listen(rel_steps1, dir1, rel_steps2, dir2, rel_steps3, dir3, servo1, servo2)
         
         if not responses:
             print("⚠️ No response from Arduino!")
@@ -154,34 +154,47 @@ def manual_move(rel_steps1, rel_steps2):
     
     return responses
 
+
+def pick_and_place(pick_x, pick_y, place_x, place_y, z_pick, z_place, phi=0):
+    """Perform a pick-and-place operation"""
+    global current_angles
+    
+    print("\n--- PICK AND PLACE OPERATION ---")
+        
+        # Test sequence
+    test_points = [
+            #(0.05, 0.0, 0.0),   # Point 2
+            (pick_x, pick_y, 0, 12),   # Point 1  
+            (pick_x, pick_y, z_pick, 12),   # Point 3
+            (pick_x, pick_y, 0, 12),   # Point 3
+            (place_x, place_y, 0, 12),
+            (place_x, place_y, z_place, 12),   # Point 3
+            (place_x, place_y, 0, 12),
+            (0.36, 0.0, 0, 12)
+        ]
+    for i, (x, y, z, phi) in enumerate(test_points, 1):
+            print(f"\n{'='*50}")
+            print(f"Pick and place {i}/{len(test_points)}")
+            print(current_angles)
+            success, current_angles = move_to_point(x, y, current_angles, z, phi, auto_home=False)
+            time.sleep(0.5)
+            if not success:
+                print(f"⚠️ Movement {i} failed - continuing to next point...")
+                break
+    
+
+        
+    
+    print("✅ Pick and place operation completed")
+
+
 # -------------------------
 # MAIN TEST
 # -------------------------
 if __name__ == "__main__":
     try:
         print("🤖 SCARA Robot Controller Started")
-        print(f"Current position: θ1={utl.radians_to_degrees(current_angles[0]):.1f}°, θ2={utl.radians_to_degrees(current_angles[1]):.1f}°")
-        
-        # Test sequence
-        test_points = [
-            #(0.05, 0.0, 0.0),   # Point 2
-            (0.1, 0.0, -10),   # Point 1  ###wrong?
-            (0.2, 0.0, -15),   # Point 3
-            (0.36, 0.0, 0)
-        ]
-        for i, (x, y, z) in enumerate(test_points, 1):
-            print(f"\n{'='*50}")
-            print(f"MOVEMENT {i}/{len(test_points)}")
-            print(current_angles)
-            success, current_angles = move_to_point(x, y, current_angles, z, auto_home=False)
-
-            if not success:
-                print(f"⚠️ Movement {i} failed - continuing to next point...")
-            
-            """             if i < len(test_points):
-                cont = input(f"\nContinue to point {i+1}? (y/N): ")
-                if cont.lower() != 'y':
-                    break """
+        pick_and_place(0.22, -0.25, 0.2, 0.2, z_pick=-9, z_place=-15)
         
         print("\n🎉 All movements completed!")
         
