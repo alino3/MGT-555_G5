@@ -42,19 +42,10 @@ void loop() {
 }
 
 void receiveEvent(int bytes) {
-  if (bytes == 5) { // 4 bytes for steps + 1 byte for direction
-    // Read steps (4 bytes)
-    receivedSteps = 0;
-    for (int i = 0; i < 4; i++) {
-      receivedSteps = (receivedSteps << 8) | Wire.read();
-    }
-    
-    // Read direction (1 byte)
+  if (bytes == 5) {
+    receivedSteps = ... // reading logic
     receivedDirection = Wire.read();
-    newData = true;
-    
-    Serial.print("I2C received: "); Serial.print(receivedSteps); 
-    Serial.print(" microsteps, dir: "); Serial.println(receivedDirection);
+    newData = true; 
   }
 }
 

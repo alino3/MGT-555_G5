@@ -4,11 +4,12 @@ import struct
 import time
 import math
 import Utilities as utl
+import numpy as np
 
 # -------------------------
 # CONFIGURATION
 # -------------------------
-PORT = "COM5"
+PORT = "COM6"
 BAUDRATE = 115200
 TIMEOUT = 1
 
@@ -46,17 +47,25 @@ def send_and_listen(pulses1, dir1, pulses2, dir2, pulses3, dir3, servo1, servo2)
         
         # Wait for and read responses
         print("Arduino responses:")
-        time.sleep(1)
+        time.sleep(0.1)
         
         responses = []
         start_time = time.time()
-        while time.time() - start_time < 5:
+        while time.time() - start_time < 5: # Increased timeout for safety (in case move is long)
             if ser.in_waiting > 0:
-                msg = ser.readline().decode().strip()
+                # Use errors='ignore' to prevent crashes like before
+                msg = ser.readline().decode('utf-8', errors='ignore').strip()
+                
                 if msg:
                     print("  ", msg)
                     responses.append(msg)
-            time.sleep(0.1)
+                    
+                    # --- THE FIX: Stop waiting if Arduino says it's done ---
+                    if "Movement Done" in msg:
+                        return responses
+            
+            # Short sleep to save CPU, but loop checks often
+            time.sleep(0.1) 
             
         return responses
         
@@ -79,8 +88,11 @@ def move_to_point(x, y, current_angles, z, phi=0, gripper_open=False, auto_home=
         print(f"\n🎯 MOVING TO: x={x}, y={y}, z={z}")
         print(f"Starting from: θ1={utl.radians_to_degrees(current_angles[0]):.1f}°, θ2={utl.radians_to_degrees(current_angles[1]):.1f}°")
         
-        # Use the utility function for IK calculation (pass current_angles)
-        target_angles = utl.safe_ik_calculation(x, y, current_angles, z, phi)
+        # FIX: Convert absolute phi (degrees) to radians here
+        phi_rad = utl.degrees_to_radians(phi)
+        
+        # Pass radians to the safe_ik_calculation
+        target_angles = utl.safe_ik_calculation(x, y, current_angles, z, phi_rad)
         
         if target_angles is None:
             print("❌ IK failed - skipping this point")
@@ -94,8 +106,14 @@ def move_to_point(x, y, current_angles, z, phi=0, gripper_open=False, auto_home=
         # Calculate relative steps from current position to target (pass current_angles)
         rel_steps1, dir1, rel_steps2, dir2, rel_steps3, dir3 = utl.calculate_relative_steps(target_angles, current_angles)
 
-
-        servo1 = int(target_angles[2])  # Assuming servo1 corresponds to theta3
+        # --- FIX STARTS HERE ---
+        # Convert the IK radian output to degrees for the servo
+        theta3_rad = target_angles[2]
+        theta3_deg = utl.radians_to_degrees(theta3_rad)
+        
+        # Ensure it's a positive integer for the servo command
+        servo1 = int(4*abs(theta3_deg)/5)
+        # --- FIX ENDS HERE ---
 
         if gripper_open:
             servo2 = 0  # Open position
@@ -155,29 +173,34 @@ def manual_move(rel_steps1, rel_steps2):
     return responses
 
 
-def pick_and_place(pick_x, pick_y, place_x, place_y, z_pick, z_place, phi=0):
+def pick_and_place(pick_x, pick_y, place_x, place_y, z_pick, z_place, phi_p=0):
     """Perform a pick-and-place operation"""
     global current_angles
     
     print("\n--- PICK AND PLACE OPERATION ---")
-        
+    rest_point = (0.36, 0.0, 0, 0, False)  # Safe rest point above the table
+    
         # Test sequence
     test_points = [
             #(0.05, 0.0, 0.0),   # Point 2
-            (pick_x, pick_y, 0, 12),   # Point 1  
-            (pick_x, pick_y, z_pick, 12),   # Point 3
-            (pick_x, pick_y, 0, 12),   # Point 3
-            (place_x, place_y, 0, 12),
-            (place_x, place_y, z_place, 12),   # Point 3
-            (place_x, place_y, 0, 12),
-            (0.36, 0.0, 0, 12)
+            (pick_x, pick_y, 0, 0, False),   # Point 1 go above pick 
+            (pick_x, pick_y, z_pick, phi_p, True),   # Point 2 pick
+            (pick_x, pick_y, z_pick, phi_p, False),   # Point 3 grip
+            (pick_x, pick_y, 0, 90, False),   # Point 4 lift up
+            (place_x, place_y, 0, 0, False), # Point 5 go above place
+            (place_x, place_y, z_place, 90, False),   # Point 6 go down to place
+            (place_x, place_y, z_place, 90, True),   # Point 7 release
+            (place_x, place_y, 0, 0, False), # Point 8 go up
+            rest_point
         ]
-    for i, (x, y, z, phi) in enumerate(test_points, 1):
+    for i, (x, y, z, phi, gripper_state) in enumerate(test_points, 1):
             print(f"\n{'='*50}")
             print(f"Pick and place {i}/{len(test_points)}")
             print(current_angles)
-            success, current_angles = move_to_point(x, y, current_angles, z, phi, auto_home=False)
-            time.sleep(0.5)
+            success, current_angles = move_to_point(x, y, current_angles, z, phi, gripper_open=gripper_state, auto_home=False)
+            print('---------------------//()-------------------')
+            print(phi)
+            time.sleep(2)  # Short pause between moves
             if not success:
                 print(f"⚠️ Movement {i} failed - continuing to next point...")
                 break
@@ -194,7 +217,7 @@ def pick_and_place(pick_x, pick_y, place_x, place_y, z_pick, z_place, phi=0):
 if __name__ == "__main__":
     try:
         print("🤖 SCARA Robot Controller Started")
-        pick_and_place(0.22, -0.25, 0.2, 0.2, z_pick=-9, z_place=-15)
+        pick_and_place(0.28, -0.09, 0.2, 0.2, z_pick=-30, z_place=-15, phi_p=135)
         
         print("\n🎉 All movements completed!")
         

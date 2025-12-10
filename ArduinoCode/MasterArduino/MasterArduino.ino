@@ -1,115 +1,110 @@
 #include <Wire.h>
 
-// Motor 1 pins
+// Motor 1 pins (Local)
 #define STEP_PIN_1 2
 #define DIR_PIN_1 3
 #define ENABLE_PIN_1 4
 
 // I2C addresses
-#define ARDUINO_2_ADDRESS 8  // Motor 2
-#define ARDUINO_3_ADDRESS 9  // Z-Stepper + Servos
+#define ARDUINO_3_ADDRESS 9  
 
 void setup() {
-  Serial.begin(115200);
-  Wire.begin();
-  
-  // Initialize motor pins
+  Serial.begin(9600);
+  Wire.begin(); 
+  Wire.setWireTimeout(3000, true); // FIX: Stop I2C from hanging forever (3ms timeout)
+
   pinMode(STEP_PIN_1, OUTPUT);
   pinMode(DIR_PIN_1, OUTPUT);
   pinMode(ENABLE_PIN_1, OUTPUT);
   digitalWrite(ENABLE_PIN_1, LOW);
   
-  Serial.println("=== MASTER ARDUINO SIMPLIFIED ===");
-  Serial.println("Ready for commands...");
+  // Flash LED to show reset
+  pinMode(13, OUTPUT);
+  digitalWrite(13, HIGH); delay(500); digitalWrite(13, LOW);
+
+  Serial.println("=== MASTER ONLINE ===");
 }
 
 void loop() {
   if (Serial.available() >= 18) {
-    byte command = Serial.read();
+    byte header = Serial.peek(); // Peek at the first byte without removing it
     
-    if (command == 0x01) {
-      // Read all data
-      long steps1 = readLong();
-      long steps2 = readLong();
-      long stepsZ = readLong();
-      byte dir1 = Serial.read();
-      byte dir2 = Serial.read();
-      byte dirZ = Serial.read();
-      byte servo_phi = Serial.read();
-      byte servo_gripper = Serial.read();
-      
-      Serial.println("\n=== PROCESSING COMMAND ===");
-      Serial.print("Z-axis: "); Serial.print(stepsZ); Serial.print(" steps, dir: "); Serial.println(dirZ);
-      
-      // Move Motor 1 locally
-      if (steps1 != 0) {
-        moveStepperLocal(steps1, dir1);
-      }
-      
-      // Send to Arduino 2 (Motor 2)
-      if (steps2 != 0) {
-        sendToArduino2(steps2, dir2);
-      }
-      
-      // Send to Arduino 3 (Z-Stepper + Servos)
-      sendToArduino3(stepsZ, dirZ, servo_phi, servo_gripper);
-      
-      Serial.println("=== COMMAND COMPLETED ===");
+    // FIX: Buffer Synchronization
+    if (header != 0x01) {
+      // If the first byte isn't our header, we are out of sync!
+      Serial.print("SYNC ERROR: Found "); Serial.println(header, HEX);
+      while(Serial.available()) Serial.read(); // Dump the garbage
+      Serial.println("Buffer flushed");
+      return; 
     }
+
+    // Read the Header
+    Serial.read(); 
+    
+    // Read Data
+    long steps1 = readLong();
+    long steps2 = readLong(); // Ignore Motor 2
+    long stepsZ = readLong();
+    byte dir1 = Serial.read();
+    byte dir2 = Serial.read(); // Ignore Motor 2
+    byte dirZ = Serial.read();
+    byte servo_phi = Serial.read();
+    byte servo_gripper = Serial.read();
+    
+    // DEBUG: Tell Python we got the data immediately!
+    Serial.println("ACK: Data Received"); 
+
+    // 1. Send to Arduino 3 (I2C)
+    sendToArduino3(stepsZ, dirZ, servo_phi, servo_gripper);
+    
+    // 2. Move Local Motor
+    if (steps1 != 0) {
+      Serial.print("Moving M1: "); Serial.println(steps1);
+      moveStepperLocal(steps1, dir1);
+    }
+    
+    Serial.println("DONE");
   }
 }
 
 long readLong() {
   long value = 0;
   for (int i = 0; i < 4; i++) {
+    // Wait slightly if serial is slow
+    while(!Serial.available()); 
     value = (value << 8) | Serial.read();
   }
   return value;
 }
 
 void sendToArduino3(long stepsZ, byte dirZ, byte servo_phi, byte servo_gripper) {
-  Serial.println("Sending to Arduino 3...");
-  
   Wire.beginTransmission(ARDUINO_3_ADDRESS);
-  
-  // Send stepper data (5 bytes)
-  for (int i = 3; i >= 0; i--) {
-    byte b = (stepsZ >> (8 * i)) & 0xFF;
-    Wire.write(b);
-  }
+  Wire.write(0xBB); // Header
+  for (int i = 3; i >= 0; i--) Wire.write((stepsZ >> (8 * i)) & 0xFF);
   Wire.write(dirZ);
-  
-  // Send servo data (3 bytes)
-  Wire.write(0xAA);
+  Wire.write(0xAA); // Servo Header
   Wire.write(servo_phi);
   Wire.write(servo_gripper);
   
   byte error = Wire.endTransmission();
   
   if (error == 0) {
-    Serial.println("Command sent to Arduino 3 successfully");
+    Serial.println("I2C Success");
   } else {
-    Serial.print("I2C error: ");
-    Serial.println(error);
+    // If you see this error, check your wires!
+    Serial.print("I2C FAILED! Error: "); Serial.println(error);
+    // Error 2 = NACK (Slave not found / wrong address)
+    // Error 3 = NACK on data
+    // Error 5 = Timeout (Wires loose)
   }
-}
-
-void sendToArduino2(long steps, byte direction) {
-  Wire.beginTransmission(ARDUINO_2_ADDRESS);
-  for (int i = 3; i >= 0; i--) {
-    Wire.write((steps >> (8 * i)) & 0xFF);
-  }
-  Wire.write(direction);
-  Wire.endTransmission();
 }
 
 void moveStepperLocal(long steps, byte direction) {
   digitalWrite(DIR_PIN_1, direction);
   delay(10);
-  
   for (long i = 0; i < steps; i++) {
     digitalWrite(STEP_PIN_1, HIGH);
-    delayMicroseconds(800);
+    delayMicroseconds(800); 
     digitalWrite(STEP_PIN_1, LOW);
     delayMicroseconds(800);
   }
