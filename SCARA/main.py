@@ -82,12 +82,7 @@ def move_to_point(x, y, current_angles, z, phi=0, gripper_open=False, auto_home=
         Move to specified point with constraints and optional homing
         Returns: (success, current_angles)
         """
-        print("\n--- MOVE TO POINT ---")
-        print("Current angles:")
-        print(current_angles)
-        print(f"\n🎯 MOVING TO: x={x}, y={y}, z={z}")
-        print(f"Starting from: θ1={utl.radians_to_degrees(current_angles[0]):.1f}°, θ2={utl.radians_to_degrees(current_angles[1]):.1f}°")
-        
+
         # FIX: Convert absolute phi (degrees) to radians here
         phi_rad = utl.degrees_to_radians(phi)
         
@@ -96,13 +91,7 @@ def move_to_point(x, y, current_angles, z, phi=0, gripper_open=False, auto_home=
         
         if target_angles is None:
             print("❌ IK failed - skipping this point")
-            return False, current_angles  # ← FIXED: Return tuple with current angles
-
-        print("\n--- TARGET ANGLES ---")
-        print(f"θ1 = {target_angles[0]:.3f} rad ({utl.radians_to_degrees(target_angles[0]):.1f}°)")
-        print(f"θ2 = {target_angles[1]:.3f} rad ({utl.radians_to_degrees(target_angles[1]):.1f}°)")
-        print(f"θ3 = {target_angles[2]:.3f} rad ({utl.radians_to_degrees(target_angles[2]):.1f}°)")
-
+            return False, current_angles  
         # Calculate relative steps from current position to target (pass current_angles)
         rel_steps1, dir1, rel_steps2, dir2, rel_steps3, dir3 = utl.calculate_relative_steps(target_angles, current_angles)
 
@@ -119,10 +108,6 @@ def move_to_point(x, y, current_angles, z, phi=0, gripper_open=False, auto_home=
             servo2 = 0  # Open position
         else:
             servo2 = 90  # Closed position
-
-        # Send movement
-        print("\nSending movement command...")
-        print(f"Relative Steps: M1={rel_steps1}(d:{dir1}), M2={rel_steps2}(d:{dir2}), M3={rel_steps3}(d:{dir3})")
         responses = send_and_listen(rel_steps1, dir1, rel_steps2, dir2, rel_steps3, dir3, servo1, servo2)
         
         if not responses:
@@ -131,9 +116,6 @@ def move_to_point(x, y, current_angles, z, phi=0, gripper_open=False, auto_home=
         
         # Update current position if movement was successful
         current_angles = target_angles
-        print("✅ Movement completed successfully!")
-        print(f"New position: θ1={utl.radians_to_degrees(current_angles[0]):.1f}°, θ2={utl.radians_to_degrees(current_angles[1]):.1f}°")
-        
         # Auto-home if requested
         if auto_home:
             time.sleep(5)
@@ -143,8 +125,6 @@ def move_to_point(x, y, current_angles, z, phi=0, gripper_open=False, auto_home=
             if responses:
                 current_angles = HOME_ANGLES
                 print("✅ Home position reached")
-        print("----------c1---------------")
-        print(current_angles)
         return True, current_angles
     
 
@@ -173,34 +153,49 @@ def manual_move(rel_steps1, rel_steps2):
     return responses
 
 
-def pick_and_place(pick_x, pick_y, place_x, place_y, z_pick, z_place, phi_p=0):
+def pick_and_place(pick_x, pick_y, place_x=0.15, place_y=-0.25, z_pick=-7, z_place=-20, phi_p=0):
     """Perform a pick-and-place operation"""
     global current_angles
     
     print("\n--- PICK AND PLACE OPERATION ---")
-    rest_point = (0.36, 0.0, 0, 0, False)  # Safe rest point above the table
-    
+    rest_point = (0.15, -0.15, 0, 0, False)  # Safe rest point above the table
+    print("phi_p:", phi_p)
         # Test sequence
     test_points = [
             #(0.05, 0.0, 0.0),   # Point 2
-            (pick_x, pick_y, 0, 0, False),   # Point 1 go above pick 
+            (pick_x, pick_y, 0, phi_p, True),   # Point 1 go above pick 
+            (pick_x, pick_y, 0, 0, True),   # Point 2 pick
             (pick_x, pick_y, z_pick, phi_p, True),   # Point 2 pick
             (pick_x, pick_y, z_pick, phi_p, False),   # Point 3 grip
             (pick_x, pick_y, 0, 90, False),   # Point 4 lift up
-            (place_x, place_y, 0, 0, False), # Point 5 go above place
+            (place_x, place_y, 0, 90, False), # Point 5 go above place
             (place_x, place_y, z_place, 90, False),   # Point 6 go down to place
             (place_x, place_y, z_place, 90, True),   # Point 7 release
             (place_x, place_y, 0, 0, False), # Point 8 go up
             rest_point
         ]
+
+    prev_x, prev_y = 0, 0 
+    first_move = True
     for i, (x, y, z, phi, gripper_state) in enumerate(test_points, 1):
             print(f"\n{'='*50}")
             print(f"Pick and place {i}/{len(test_points)}")
-            print(current_angles)
+            # --- OSCILLATION PREVENTION LOGIC ---
+            if not first_move:
+                # Calculate 2D distance (Pythagoras)
+                distance = math.sqrt((x - prev_x)**2 + (y - prev_y)**2)
+                
+                # If moving more than 10cm (0.1m), wait for settle
+                if distance > 0.1: 
+                    print(f"⚠️ Large move detected ({distance:.3f}m) - Waiting for wobble to settle...")
+                    time.sleep(2)
+            
+            first_move = False
+            prev_x, prev_y = x, y
+
             success, current_angles = move_to_point(x, y, current_angles, z, phi, gripper_open=gripper_state, auto_home=False)
-            print('---------------------//()-------------------')
             print(phi)
-            time.sleep(2)  # Short pause between moves
+            time.sleep(1)  # Short pause between moves
             if not success:
                 print(f"⚠️ Movement {i} failed - continuing to next point...")
                 break
@@ -211,16 +206,59 @@ def pick_and_place(pick_x, pick_y, place_x, place_y, z_pick, z_place, phi_p=0):
     print("✅ Pick and place operation completed")
 
 
+
 # -------------------------
-# MAIN TEST
+# MAIN TEST LOOP
 # -------------------------
 if __name__ == "__main__":
     try:
         print("🤖 SCARA Robot Controller Started")
-        pick_and_place(0.28, -0.09, 0.2, 0.2, z_pick=-30, z_place=-15, phi_p=135)
         
-        print("\n🎉 All movements completed!")
-        
+        while True:
+            print("\n" + "="*30)
+            print(" COMMAND MENU ")
+            print("="*30)
+            print("1. Run Pick and Place (Standard)")
+            print("2. Enter Manual Coordinates")
+            print("3. Home Robot")
+            print("q. Quit")
+            
+            user_input = input("\nEnter choice: ").strip().lower()
+            
+            if user_input == '1':
+                # Run your standard sequence
+                print("\n🚀 Starting Standard Sequence...")
+                pick_and_place(0.34, 0.02, 0.2, -0.2, z_pick=-7, z_place=-25, phi_p=135)
+                
+            elif user_input == '2':
+                # Allow typing coordinates
+                try:
+                    p_x = float(input("Pick X (m) [e.g. 0.36]: "))
+                    p_y = float(input("Pick Y (m) [e.g. 0.00]: "))
+                    phi_off = float(input("Gripper Angle (deg) [e.g. 135]: "))
+                    OFFSET_X = 0.4  # Adjust as needed
+                    OFFSET_Y = -0.05  # Adjust as needed
+                    p_x = -1*(p_x/1000)+OFFSET_X # Apply offsets if any
+                    p_y = OFFSET_Y + p_y/1000  # Apply offsets if any
+                    print(f"Adjusted Pick Coordinates: x={p_x}, y={p_y}")
+                    phi = (phi_off+90) % 180
+                    print(f"Adjusted Gripper Angle: φ={phi}°")
+                    pick_and_place(p_x, p_y, phi_p=phi)
+                except ValueError:
+                    print("❌ Invalid number format!")
+                    
+            elif user_input == '3':
+                # Send home command
+                move_to_point(x=0.36, y=0, current_angles=current_angles, z=0, phi=0, gripper_open=False, auto_home=False) # Ensure go_home is defined in Utilities or main
+                current_angles = HOME_ANGLES
+                
+            elif user_input == 'q':
+                print("👋 Quitting...")
+                break
+                
+            else:
+                print("⚠️ Unknown command, please try again.")
+
     except KeyboardInterrupt:
         print("\n🛑 Program interrupted by user")
     finally:

@@ -76,7 +76,7 @@ void loop() {
     // --- 1. MOVE SERVOS ---
     servoPhi.write(valServoPhi);
     servoGripper.write(valServoGripper);
-    delay(100); // Give servos a moment to start moving
+    delay(200); // Give servos a moment to start moving
 
     // --- 2. MOVE STEPPERS (Simultaneously) ---
     moveSimultaneous(steps1, dir1, steps2, dir2, steps3, dir3);
@@ -95,7 +95,6 @@ long readLong() {
   }
   return value;
 }
-
 // Linear Interpolation Algorithm for smooth simultaneous movement
 void moveSimultaneous(long s1, byte d1, long s2, byte d2, long s3, byte d3) {
   
@@ -112,15 +111,26 @@ void moveSimultaneous(long s1, byte d1, long s2, byte d2, long s3, byte d3) {
   // If no movement needed, exit
   if (maxSteps == 0) return;
 
-  Serial.print("Moving steps: "); Serial.println(maxSteps);
+  // --- NEW: ADAPTIVE SPEED SETTING ---
+  long stepDelay;
+  
+  if (s1 == 0 && s2 == 0) {
+    // CASE A: Only Z is moving (or Z + nothing)
+    // Z-axis lead screws usually need much higher speed to move visible distance.
+    // 200 microseconds is usually safe for NEMA17 on lead screw.
+    stepDelay = 200; 
+  } else {
+    // CASE B: Arm is moving (Heavy load)
+    // Keep this slower to prevent the heavy arm from stalling/skipping.
+    stepDelay = 800; 
+  }
+  // -----------------------------------
 
-  // Counters for Bresenham-like algorithm
+  // Loop through the steps
   long count1 = 0;
   long count2 = 0;
   long count3 = 0;
 
-  // Loop through the longest distance
-  // We pulse the motors proportionally so they start and end together
   for (long i = 0; i < maxSteps; i++) {
     
     // Check Motor 1
@@ -144,7 +154,7 @@ void moveSimultaneous(long s1, byte d1, long s2, byte d2, long s3, byte d3) {
       count3 -= maxSteps;
     }
 
-    // Pulse Width (Wait)
+    // Pulse Width
     delayMicroseconds(10); 
     
     // Pull all STEP pins LOW
@@ -152,8 +162,7 @@ void moveSimultaneous(long s1, byte d1, long s2, byte d2, long s3, byte d3) {
     digitalWrite(STEP_PIN_2, LOW);
     digitalWrite(STEP_PIN_3, LOW);
 
-    // Speed Control (Delay between steps)
-    // Adjust this value (800) to change speed. Lower = Faster.
-    delayMicroseconds(600); 
+    // Speed Control (Use the variable we set above)
+    delayMicroseconds(stepDelay); 
   }
 }

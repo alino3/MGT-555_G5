@@ -25,11 +25,7 @@ def get_effective_limits(current_theta1, current_theta2):
     # The key insight: coupling affects RELATIVE MOVEMENT, not absolute limits
     # When motor1 moves by Δθ1, motor2 is dragged by Δθ2_coupling = Δθ1 * COUPLING_RATIO
     # So the NET movement we command to motor2 should be: Δθ2_desired - Δθ2_coupling
-    
-    print(f"   Coupling analysis:")
-    print(f"   - Motor1 current: {current_theta1_deg:.1f}°")
-    print(f"   - Motor2 current: {current_theta2_deg:.1f}°")
-    print(f"   - When Motor1 moves, Motor2 is dragged by {COUPLING_RATIO} of that movement")
+
     
     # Absolute limits still apply to both motors independently
     # The coupling only affects how we achieve the movement
@@ -51,11 +47,7 @@ def validate_angles_with_coupling(theta1, theta2, current_angles):
     theta2_deg = radians_to_degrees(theta2)
     current_theta1_deg = radians_to_degrees(current_theta1)
     current_theta2_deg = radians_to_degrees(current_theta2)
-    
-    print(f"\n🔍 VALIDATING ANGLES:")
-    print(f"   Current: θ1={current_theta1_deg:.1f}°, θ2={current_theta2_deg:.1f}°")
-    print(f"   Target:  θ1={theta1_deg:.1f}°, θ2={theta2_deg:.1f}°")
-    
+
     # Check motor1 absolute limits
     if not (MOTOR1_ABS_MIN <= theta1_deg <= MOTOR1_ABS_MAX):
         reason = f"Motor 1 angle {theta1_deg:.1f}° outside absolute limits [{MOTOR1_ABS_MIN}, {MOTOR1_ABS_MAX}]"
@@ -79,12 +71,7 @@ def validate_angles_with_coupling(theta1, theta2, current_angles):
     
     # The actual motor2 command should compensate for this coupling
     delta_theta2_command = delta_theta2_desired + delta_theta2_coupling
-    
-    print(f"   Movement analysis:")
-    print(f"   - Motor1 desired Δ: {delta_theta1:.1f}°")
-    print(f"   - Motor2 desired Δ: {delta_theta2_desired:.1f}°")
-    print(f"   - Coupling effect: Motor2 would move {delta_theta2_coupling:.1f}° automatically")
-    print(f"   - Motor2 command needed: {delta_theta2_command:.1f}° (to compensate coupling)")
+
     
     # Check if the compensated motor2 movement is within reasonable bounds
     # (we don't want enormous compensation values)
@@ -122,13 +109,6 @@ def calculate_relative_steps_with_coupling(target_angles, current_angles):
         
         # Calculate compensated motor2 movement
         delta_theta2_command_deg = delta_theta2_desired_deg - delta_theta2_coupling_deg
-        
-        print(f"\n--- COUPLING COMPENSATION CALCULATION ---")
-        print(f"Desired movement:")
-        print(f"  Motor1: {current_theta1_deg:.1f}° → {target_theta1_deg:.1f}° (Δ={delta_theta1_deg:.1f}°)")
-        print(f"  Motor2: {current_theta2_deg:.1f}° → {target_theta2_deg:.1f}° (Δ={delta_theta2_desired_deg:.1f}°)")
-        print(f"Coupling effect: Motor2 auto-moves {delta_theta2_coupling_deg:.1f}° when Motor1 moves")
-        print(f"Compensated command: Motor2 needs Δ={delta_theta2_command_deg:.1f}°")
         
         # Convert compensated deltas back to radians for step calculation
         delta_theta1_rad = degrees_to_radians(delta_theta1_deg)
@@ -185,17 +165,10 @@ def choose_best_solution(solA, solB, current_angles=None):
         theta1A, theta2A = solA  # Unpack 4 values
         theta1B, theta2B = solB  # Unpack 4 values
         
-        print(f"\n🎯 ANALYZING IK SOLUTIONS:")
-        print(f"Solution A: θ1={radians_to_degrees(theta1A):.1f}°, θ2={radians_to_degrees(theta2A):.1f}°")
-        print(f"Solution B: θ1={radians_to_degrees(theta1B):.1f}°, θ2={radians_to_degrees(theta2B):.1f}°")
-        
         # Check which solutions satisfy constraints WITH COUPLING
         validA, reasonA = validate_angles_with_coupling(theta1A, theta2A, current_angles)
         validB, reasonB = validate_angles_with_coupling(theta1B, theta2B, current_angles)
         
-        print(f"\n--- SOLUTION ANALYSIS RESULTS ---")
-        print(f"Solution A: {'VALID' if validA else 'INVALID'} - {reasonA}")
-        print(f"Solution B: {'VALID' if validB else 'INVALID'} - {reasonB}")
         
         if not validA and not validB:
             print("❌ No IK solution satisfies motor constraints with coupling!")
@@ -242,7 +215,6 @@ def safe_ik_calculation(x, y, current_angles, z, phi_desired=0.0):
     Returns (theta1, theta2, theta3, thetaZ) or None if failed
     """
     try:
-        print(f"🔍 Computing IK for x={x}, y={y}, z={z}, phi={phi_desired}")
         
         # Compute IK solutions
        
@@ -252,10 +224,6 @@ def safe_ik_calculation(x, y, current_angles, z, phi_desired=0.0):
         if solA is None or solB is None:
             print("❌ IK function returned None solutions")
             return None
-            
-        print(f"✅ IK computed solutions:")
-        print(f"   Solution A: θ1={radians_to_degrees(solA[0]):.1f}°, θ2={radians_to_degrees(solA[1]):.1f}°")
-        print(f"   Solution B: θ1={radians_to_degrees(solB[0]):.1f}°, θ2={radians_to_degrees(solB[1]):.1f}°")
         
         # Choose best solution based on constraints
         best_solution = choose_best_solution(solA, solB, current_angles)
@@ -272,8 +240,7 @@ def safe_ik_calculation(x, y, current_angles, z, phi_desired=0.0):
         theta3 = IK.end_effector(theta1, theta2, phi_desired) 
         Z = z
         
-        print("✅ IK computation successful")
-        print(f"   Final angles: θ1={radians_to_degrees(theta1):.1f}°, θ2={radians_to_degrees(theta2):.1f}°, θ3={radians_to_degrees(theta3):.1f}°, Z={Z:.1f}mm")
+
         return (theta1, theta2, theta3, Z)
         
     except ValueError as e:
@@ -307,7 +274,6 @@ def calculate_relative_steps(target_angles, current_angles):
     rel_steps2 = target_steps2 - current_steps2
     #rel_steps3 = target_steps3 - current_steps3
     steps_Z = int(round(((z_t - z)/ 2) * IK.STEPS_PER_REV_Z))  # Convert z in mm to steps
-    print(f"Z movement: from {z} mm to {z_t} mm → steps: {steps_Z}")
     # Determine directions based on sign of relative steps
     dir1 = 1 if rel_steps1 >= 0 else 0
     dir2 = 0 if rel_steps2 >= 0 else 1
@@ -317,11 +283,6 @@ def calculate_relative_steps(target_angles, current_angles):
     rel_steps1 = abs(rel_steps1)
     rel_steps2 = abs(rel_steps2)
     steps_Z = abs(steps_Z)
-    
-    print(f"\n--- RELATIVE MOVEMENT CALCULATION ---")
-    print(f"Current: θ1={radians_to_degrees(current_theta1):.1f}°, θ2={radians_to_degrees(current_theta2):.1f}°")
-    print(f"Target:  θ1={radians_to_degrees(target_theta1):.1f}°, θ2={radians_to_degrees(target_theta2):.1f}°")
-    print(f"Relative steps: M1={rel_steps1}(d:{dir1}), M2={rel_steps2}(d:{dir2})")
     
     return rel_steps1, dir1, rel_steps2, dir2, steps_Z, dir3
 
